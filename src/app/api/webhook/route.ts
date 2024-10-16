@@ -1,38 +1,57 @@
+import createUser from "@/lib/action/user.action";
 import { WebhookEvent } from "@clerk/nextjs/server";
+import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 import { Webhook } from "svix";
- 
+
 
 export async function POST(req: Request) {
-  const svix_id = req.headers.get("svix-id") ?? "";
-  const svix_timestamp = req.headers.get("svix-timestamp") ?? "";
-  const svix_signature = req.headers.get("svix-signature") ?? "";
-  if(!process.env.WEBHOOK_SECRET){
-    throw new Error("Webhook secret is not set");
-  }
+    const svix_id = headers().get("svix-id") ?? "";
+    const svix_timestamp = headers().get("svix-timestamp") ?? "";
+    const svix_signature = headers().get("svix-signature") ?? "";
+    if (!process.env.WEBHOOK_SECRET) {
+        throw new Error("Webhook secret is not set");
+    }
+    if (!svix_id || !svix_timestamp || !svix_signature) {
+        return new Response("Bad Request", { status: 400 });
+    }
 
-  const payload = await req.json();
-  const body = JSON.stringify(payload);
+    const payload = await req.json();
+    const body = JSON.stringify(payload);
 
-  const sivx = new Webhook(process.env.WEBHOOK_SECRET);
+    const sivx = new Webhook(process.env.WEBHOOK_SECRET);
 
-  let msg: WebhookEvent;
-  
-  try {
-    msg = sivx.verify(body, {
-      "svix-id": svix_id,
-      "svix-timestamp": svix_timestamp,
-      "svix-signature": svix_signature,
-    }) as WebhookEvent;
-  } catch (err) {
-    return new Response("Bad Request", { status: 400 });
-  }
+    let msg: WebhookEvent;
 
-  const eventType = msg.type;
-  if(eventType === "user.created"){
-    console.log("New user created: ", msg.data);
-  }
+    try {
+        msg = sivx.verify(body, {
+            "svix-id": svix_id,
+            "svix-timestamp": svix_timestamp,
+            "svix-signature": svix_signature,
+        }) as WebhookEvent;
+    } catch (err) {
+        return new Response("Bad Request", { status: 400 });
+    }
 
-  // Rest
+    const eventType = msg.type;
+    if (eventType === "user.created") {
+        // create user to database
+        const { id, username, email_addresses, image_url } = msg.data;
+        // save user to database
+        const user = await createUser({
+            clerkId: id,
+            name: username!,
+            username: username!,
+            email: email_addresses[0].email_address,
+            avatar: image_url
+        });
+        return NextResponse.json({
+            message: "ok",
+            user
+        });
+    }
 
-  return new Response("OK", { status: 200 });
+    // Rest
+
+    return new Response("OK", { status: 200 });
 }
